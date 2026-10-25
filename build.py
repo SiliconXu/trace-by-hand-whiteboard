@@ -2,10 +2,12 @@
 
 - Embeds the LeetCode problem list (data/problems.csv) into /*PROBLEMS*/[]
 - Embeds UI translations (i18n/<lang>.json, keys = Traditional Chinese source strings) into /*I18N*/{}
+- Embeds the vendored Prism syntax highlighter into /*HIGHLIGHTER*/
+- Embeds MathLive, formula editing code, styles and mathematical fonts
 
 Usage: python3 build.py
 """
-import csv, json, os
+import base64, csv, json, os, re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LANGS = ['zh-CN', 'en', 'ja', 'ko', 'fr', 'hi']
@@ -17,8 +19,27 @@ with open(os.path.join(HERE, 'data', 'problems.csv'), encoding='utf-8') as f:
 probs.sort()
 
 src = open(os.path.join(HERE, 'src', 'canvas_src.html'), encoding='utf-8').read()
-assert '/*PROBLEMS*/[]' in src and '/*I18N*/{}' in src
+assert '/*PROBLEMS*/[]' in src and '/*I18N*/{}' in src and '/*HIGHLIGHTER*/' in src
 page = src.replace('/*PROBLEMS*/[]', json.dumps(probs, ensure_ascii=False, separators=(',', ':')))
+highlighter = open(os.path.join(HERE, 'src', 'vendor', 'prism-1.30.0.min.js'), encoding='utf-8').read()
+page = page.replace('/*HIGHLIGHTER*/', highlighter.replace('</script', '<\\/script'))
+
+# Bundle the visual formula editor and its fonts; the output stays self-contained.
+math_dir = os.path.join(HERE, 'src', 'vendor', 'mathlive')
+math_js = open(os.path.join(math_dir, 'mathlive.min.js'), encoding='utf-8').read()
+math_license = open(os.path.join(math_dir, 'LICENSE.txt'), encoding='utf-8').read()
+math_js = '\n'.join(line.rstrip() for line in math_js.split('\n'))
+math_license = '\n'.join(line.rstrip() for line in math_license.split('\n'))
+math_css = open(os.path.join(math_dir, 'mathlive-static.css'), encoding='utf-8').read()
+def embed_font(match):
+    with open(os.path.join(math_dir, match[1]), 'rb') as f:
+        return 'url(data:font/woff2;base64,' + base64.b64encode(f.read()).decode('ascii') + ')'
+math_css = re.sub(r'url\((fonts/[^)]+\.woff2)\)', embed_font, math_css)
+for marker in ('/*MATHLIVE_JS*/', '/*MATHLIVE_CSS*/', '/*FORMULAS*/'):
+    assert marker in page
+page = page.replace('/*MATHLIVE_JS*/', ('/*! MathLive license\n' + math_license + '\n*/\n' + math_js).replace('</script', '<\\/script'))
+page = page.replace('/*MATHLIVE_CSS*/', math_css)
+page = page.replace('/*FORMULAS*/', open(os.path.join(HERE, 'src', 'formulas.js'), encoding='utf-8').read())
 
 keys = json.load(open(os.path.join(HERE, 'i18n', 'source_zh-TW.json'), encoding='utf-8'))
 i18n = {}
